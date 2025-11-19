@@ -1,8 +1,10 @@
 import pandas as pd
 from pathlib import Path
+import os
+import re
 
 
-def create_ixi_csv(ixi_root, xls_path, output_csv):
+def create_ixi_csv(ixi_t1_orig_root, ixi_t2_orig_root, xls_path, output_csv):
     """
     Generate CSV for IXI dataset including:
     - PatientID
@@ -17,45 +19,65 @@ def create_ixi_csv(ixi_root, xls_path, output_csv):
     except Exception:
         meta_df = pd.read_csv(xls_path)
 
-    if "IXI_ID" not in meta_df.columns or "AGE" not in meta_df.columns:
-        raise ValueError("IXI.xls must contain columns: IXI_ID, AGE")
+    # Find a column containing 'id' (case-insensitive) instead of requiring exact 'IXI_ID'
+    id_col = next((c for c in meta_df.columns if 'id' in c.lower()), None)
+    age_col = next((c for c in meta_df.columns if 'age' in c.lower()), None)
+    if id_col is None or age_col is None:
+        raise ValueError(f"{xls_path} must contain an ID column and AGE column")
 
-    # Convert IXI_ID to string for matching folder names
-    meta_df["IXI_ID"] = meta_df["IXI_ID"].astype(str)
+    # Convert the detected ID column to string for matching folder names
+    meta_df[id_col] = meta_df[id_col].astype(str)
 
-    # Create lookup dictionary
-    age_lookup = dict(zip(meta_df["IXI_ID"], meta_df["AGE"]))
+    # Create lookup dictionary using the detected ID column
+    age_lookup = dict(zip(meta_df[id_col], meta_df[age_col]))
 
-    # Scan preprocessed IXI directory
-    ixi_path = Path(ixi_root)
+    # Build filename -> subject ID maps for T1 and T2 using a regex like in update_csv()
+    t1_root = Path(ixi_t1_orig_root)
+    t2_root = Path(ixi_t2_orig_root)
+
+    pattern = re.compile(r"IXI(\d+)", re.IGNORECASE)
+    file_map_t1 = {}
+    file_map_t2 = {}
+
+    if t1_root.exists():
+        for img in os.listdir(t1_root):
+            if not img.lower().endswith(('.nii', '.nii.gz')):
+                continue
+            m = pattern.search(img)
+            if m:
+                file_map_t1[m.group(1)] = str(t1_root / img)
+
+    if t2_root.exists():
+        for img in os.listdir(t2_root):
+            if not img.lower().endswith(('.nii', '.nii.gz')):
+                continue
+            m = pattern.search(img)
+            if m:
+                file_map_t2[m.group(1)] = str(t2_root / img)
+
+    # Iterate metadata and build records by matching numeric ID extracted from the metadata ID column
     records = []
+    id_digits_re = re.compile(r"(\d+)")
+    for _, row in meta_df.iterrows():
+        raw_id = str(row[id_col])
+        m = id_digits_re.search(raw_id)
+        if not m:
+            print(f"Skipping {raw_id}: cannot extract numeric ID")
+            continue
+        id_digits = m.group(1)
 
-    for sub_dir in sorted(ixi_path.glob('*')):
-        subject_id = sub_dir.name  # folder name e.g., "2", "450"
-
-        # Must match IXI_ID in metadata
-        if subject_id not in age_lookup:
-            print(f"Skipping {subject_id}: Not found in IXI.xls")
+        # Only include if both T1 and T2 exist in the provided directories
+        t1_path = file_map_t1.get(id_digits)
+        t2_path = file_map_t2.get(id_digits)
+        if not t1_path or not t2_path:
+            print(f"Skipping {raw_id}: missing T1 or T2 in provided roots")
             continue
 
-        # Find T1
-        t1_files = list(sub_dir.glob('*_t1.nii.gz'))
-        if not t1_files:
-            print(f"Skipping {subject_id}: no T1 found")
-            continue
-
-        # Find T2
-        t2_files = list(sub_dir.glob('*_t2.nii.gz'))
-        if not t2_files:
-            print(f"Skipping {subject_id}: no T2 found")
-            continue
-
-        # Append record
         records.append({
-            'PatientID': subject_id,
-            'Age': age_lookup[subject_id],     # <-- ADDED
-            'T1': str(t1_files[0]),
-            'T2': str(t2_files[0])
+            'PatientID': raw_id,
+            'Age': age_lookup.get(raw_id, ''),
+            'T1_orig': t1_path,
+            'T2_orig': t2_path,
         })
 
     # Save output CSV
@@ -71,7 +93,8 @@ def create_ixi_csv(ixi_root, xls_path, output_csv):
 
 if __name__ == "__main__":
     df = create_ixi_csv(
-        ixi_root='IXIprep_final_image_only',
+        ixi_t1_orig_root='IXI-T1',
+        ixi_t2_orig_root='IXI-T2',
         xls_path='IXI.xls',
         output_csv='ixi_subjects.csv'
     )

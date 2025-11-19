@@ -1,100 +1,138 @@
-import pandas as pd
-from pathlib import Path
+import argparse
+import logging
 import os
 import re
+import pandas as pd
+from pathlib import Path
 
 
-def create_ixi_csv(ixi_t1_orig_root, ixi_t2_orig_root, xls_path, output_csv):
+def _extract_id(s: str) -> str:
+    m = re.search(r"IXI(\d+)", str(s), re.IGNORECASE)
+    return m.group(1) if m else ''
+
+
+def create_ixi_csv(ixi_t1_root: str, ixi_t2_root: str, xls_path: str, output_csv: str) -> pd.DataFrame:
     """
-    Generate CSV for IXI dataset including:
-    - PatientID
-    - Age (loaded from metadata file)
-    - Original T1 path
-    - Original T2 path
+    Create a CSV linking IXI subjects to T1/T2 image files and ages.
+
+    Parameters:
+    -----------
+    ixi_t1_root: str
+        directory containing T1 image files
+    ixi_t2_root: str
+        directory containing T2 image files
+    xls_path: str
+        path to IXI metadata (Excel or CSV)
+    output_csv: str
+        path to write output CSV
+
+    The function attempts to match images using numeric IDs extracted from
+    filenames (e.g. "IXI123") and from the metadata ID column.
     """
 
-    # Load metadata from IXI.xls
+    logging.info("Loading metadata from %s", xls_path)
     try:
         meta_df = pd.read_excel(xls_path)
     except Exception:
         meta_df = pd.read_csv(xls_path)
 
-    # Find a column containing 'id' (case-insensitive) instead of requiring exact 'IXI_ID'
+    # Detect columns
     id_col = next((c for c in meta_df.columns if 'id' in c.lower()), None)
     age_col = next((c for c in meta_df.columns if 'age' in c.lower()), None)
     if id_col is None or age_col is None:
         raise ValueError(f"{xls_path} must contain an ID column and AGE column")
 
-    # Convert the detected ID column to string for matching folder names
-    meta_df[id_col] = meta_df[id_col].astype(str)
+    # Normalize id column to int
+    meta_df[id_col] = meta_df[id_col].astype(int)
 
-    # Create lookup dictionary using the detected ID column
-    age_lookup = dict(zip(meta_df[id_col], meta_df[age_col]))
+    # Create age lookup by ID
+    age_lookup_by_id = {}
+    for _, row in meta_df.iterrows():
+        raw_id = int(row[id_col])
+        age = row[age_col]
+        if raw_id:
+            age_lookup_by_id[raw_id] = age
 
-    # Build filename -> subject ID maps for T1 and T2 using a regex like in update_csv()
-    t1_root = Path(ixi_t1_orig_root)
-    t2_root = Path(ixi_t2_orig_root)
+    # Map image files by extracted subject ID
+    t1_root = Path(ixi_t1_root)
+    t2_root = Path(ixi_t2_root)
 
     pattern = re.compile(r"IXI(\d+)", re.IGNORECASE)
     file_map_t1 = {}
     file_map_t2 = {}
 
     if t1_root.exists():
-        for img in os.listdir(t1_root):
+        for img in sorted(os.listdir(t1_root)):
             if not img.lower().endswith(('.nii', '.nii.gz')):
                 continue
             m = pattern.search(img)
             if m:
-                file_map_t1[m.group(1)] = str(t1_root / img)
+                file_map_t1[int(m.group(1))] = str(t1_root / img)
 
     if t2_root.exists():
-        for img in os.listdir(t2_root):
+        for img in sorted(os.listdir(t2_root)):
             if not img.lower().endswith(('.nii', '.nii.gz')):
                 continue
             m = pattern.search(img)
             if m:
-                file_map_t2[m.group(1)] = str(t2_root / img)
+                file_map_t2[int(m.group(1))] = str(t2_root / img)
 
-    # Iterate metadata and build records by matching numeric ID extracted from the metadata ID column
+    # Iterate through metadata and build records
     records = []
-    id_digits_re = re.compile(r"(\d+)")
     for _, row in meta_df.iterrows():
-        raw_id = str(row[id_col])
-        m = id_digits_re.search(raw_id)
-        if not m:
-            print(f"Skipping {raw_id}: cannot extract numeric ID")
-            continue
-        id_digits = m.group(1)
+        raw_id = int(row[id_col])
 
-        # Only include if both T1 and T2 exist in the provided directories
-        t1_path = file_map_t1.get(id_digits)
-        t2_path = file_map_t2.get(id_digits)
-        if not t1_path or not t2_path:
-            print(f"Skipping {raw_id}: missing T1 or T2 in provided roots")
+        t1_path = file_map_t1.get(raw_id)
+        t2_path = file_map_t2.get(raw_id)
+        age = age_lookup_by_id.get(raw_id)
+
+        missing = []
+        if not t1_path:
+            missing.append("T1 image")
+        if not t2_path:
+            missing.append("T2 image")
+        if age in [None, '', float('nan')] or pd.isna(age):
+            missing.append("age")
+
+        if missing:
+            logging.warning("Skipping subject %s: missing %s", raw_id, ", ".join(missing))
             continue
 
         records.append({
             'PatientID': raw_id,
-            'Age': age_lookup.get(raw_id, ''),
+            'Age': age,
             'T1_orig': t1_path,
             'T2_orig': t2_path,
         })
 
-    # Save output CSV
     df = pd.DataFrame(records)
     df.to_csv(output_csv, index=False)
 
-    print(f"\nCreated CSV with {len(df)} subjects: {output_csv}")
+    logging.info("Created CSV with %d subjects: %s", len(df), output_csv)
     print("\nFirst few rows:")
     print(df.head())
-
     return df
 
 
-if __name__ == "__main__":
-    df = create_ixi_csv(
-        ixi_t1_orig_root='IXI-T1',
-        ixi_t2_orig_root='IXI-T2',
-        xls_path='IXI.xls',
-        output_csv='ixi_subjects.csv'
+def _build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description='Prepare IXI CSV linking subjects, ages and T1/T2 images')
+    p.add_argument('--ixi_t1_root', default='IXI-T1', help='directory containing IXI T1 images')
+    p.add_argument('--ixi_t2_root', default='IXI-T2', help='directory containing IXI T2 images')
+    p.add_argument('--xls_path', default='IXI.xls', help='path to IXI metadata (Excel or CSV)')
+    p.add_argument('--output_csv', default='ixi_subjects.csv', help='output CSV path')
+    p.add_argument('--verbose', action='store_true', help='enable verbose logging')
+    return p
+
+
+if __name__ == '__main__':
+    parser = _build_arg_parser()
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format='%(levelname)s: %(message)s')
+
+    create_ixi_csv(
+        ixi_t1_root=args.ixi_t1_root,
+        ixi_t2_root=args.ixi_t2_root,
+        xls_path=args.xls_path,
+        output_csv=args.output_csv,
     )

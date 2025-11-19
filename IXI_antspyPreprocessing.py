@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import re
 import ants
+import tempfile
 
 class ANTSCoregistrationPipeline:
     """
@@ -120,18 +121,22 @@ class ANTSCoregistrationPipeline:
     #  MAIN SUBJECT REGISTRATION WORKFLOW
     # ----------------------------------------------------------
     def register_subject(self, row):
-        subject_id = str(row["IXI_ID"])
+        subject_id = str(row[self.id_col])
         print(f"\n=== PROCESSING SUBJECT {subject_id} ===")
 
-        subj_dir = self.output_dir / subject_id
-        subj_dir.mkdir(exist_ok=True)
+        # Use a temporary directory for intermediates; only final SRI outputs
+        # will be written to self.output_dir (flat, not per-subject folders).
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        tempdir = tempfile.TemporaryDirectory()
+        subj_temp = Path(tempdir.name)
 
         # -------------------------
         # LOAD INPUT IMAGES
         # -------------------------
         native_paths = {
-            "t1": row["T1"],
-            "t2": row["T2"]
+            "t1": row.get("T1_orig"),
+            "t2": row.get("T2_orig")
         }
 
         # -------------------------
@@ -139,7 +144,9 @@ class ANTSCoregistrationPipeline:
         # -------------------------
         n4_paths = {}
         for name, img in native_paths.items():
-            out = subj_dir / f"{subject_id}_native_{name}_n4.nii.gz"
+            if not img or pd.isna(img):
+                continue
+            out = subj_temp / f"{subject_id}_native_{name}_n4.nii.gz"
             self.n4_bias_correct_image(img, out, normalize=True)
             n4_paths[name] = str(out)
 
@@ -165,7 +172,7 @@ class ANTSCoregistrationPipeline:
         # ----------------------------------------------------------
         print("Applying affine to bring T2 into T1 space...")
 
-        out_t2_t1 = subj_dir / f"{subject_id}_t2_to_t1.nii.gz"
+        out_t2_t1 = subj_temp / f"{subject_id}_t2_to_t1.nii.gz"
         self._apply_affine(
             native_paths["t2"],
             native_paths["t1"],
@@ -174,7 +181,7 @@ class ANTSCoregistrationPipeline:
         )
 
         coreg_native = {
-            "t1": Path(native_paths["t1"]),
+            "t1": Path(n4_paths.get("t1") or native_paths.get("t1")),
             "t2": out_t2_t1
         }
 
@@ -199,26 +206,64 @@ class ANTSCoregistrationPipeline:
         # ----------------------------------------------------------
         print("Applying T1→TEMPLATE transform to all modalities...")
 
+        final_paths = {}
         for name, path in coreg_native.items():
-            out = subj_dir / f"{subject_id}_SRI_{name}.nii.gz"
+            out = self.output_dir / f"{subject_id}_SRI_{name}.nii.gz"
             self._apply_affine(
                 path,
                 self.template_path,
                 affine_t1_to_template,
                 out
             )
+            final_paths[name] = str(out)
+
+        # Clean up intermediates
+        try:
+            tempdir.cleanup()
+        except Exception:
+            pass
+
+        # Record final output paths back into the dataframe (if loaded)
+        try:
+            idx = row.name
+            if hasattr(self, 'df') and idx in self.df.index:
+                self.df.at[idx, 'SRI_T1'] = final_paths.get('t1', '')
+                self.df.at[idx, 'SRI_T2'] = final_paths.get('t2', '')
+        except Exception:
+            pass
 
         print(f"✓ DONE: {subject_id}")
 
     # ----------------------------------------------------------
-    #  CSV UPDATE FUNCTION (UNCHANGED)
+    #  CSV UPDATE FUNCTION
     # ----------------------------------------------------------
     def update_csv(self, dataframe, col_name=None):
-        # UNCHANGED — your original implementation
-        # (you said to keep this as-is)
-        ...
-        # paste your same code here
-        ...
+        """Update the dataframe by adding SRI output paths for each subject.
+
+        If `col_name` is provided and equals 'SRI', this will add two columns
+        `SRI_T1` and `SRI_T2` containing the paths to the final SRI images
+        saved in `self.output_dir` (or blank if not present).
+        The function writes an updated CSV with suffix `_updated` and returns it.
+        """
+        df = dataframe.copy()
+        # determine id column
+        id_col = next((c for c in df.columns if 'id' in c.lower()), None)
+        if id_col is None:
+            raise ValueError('No ID column found in dataframe to update CSV')
+
+        for ix, row in df.iterrows():
+            raw_id = str(row[id_col])
+            # final images named using raw_id (no padding)
+            t1_out = self.output_dir / f"{raw_id}_SRI_t1.nii.gz"
+            t2_out = self.output_dir / f"{raw_id}_SRI_t2.nii.gz"
+            df.at[ix, 'SRI_T1'] = str(t1_out) if t1_out.exists() else ''
+            df.at[ix, 'SRI_T2'] = str(t2_out) if t2_out.exists() else ''
+
+        base, ext = os.path.splitext(self.csv_path)
+        outpath = Path(f"{base}_updated{ext}")
+        df.to_csv(outpath, index=False)
+        print(f"Wrote updated CSV: {outpath}")
+        return df
 
     # ----------------------------------------------------------
     #  RUNNER
@@ -235,25 +280,24 @@ class ANTSCoregistrationPipeline:
         except:
             self.df = pd.read_csv(self.csv_path)
 
-        required_cols = ["IXI_ID"]
+        # detect id column (any column containing 'id')
+        id_col = next((c for c in self.df.columns if 'id' in c.lower()), None)
+        if id_col is None:
+            raise ValueError('No column containing "id" found in CSV')
+        self.id_col = id_col
 
-        if self.t1_path is not None:
-            self.df = self.update_csv(self.df, "T1")
-        else:
-            required_cols.append("T1")
-
-        if self.t2_path is not None:
-            self.df = self.update_csv(self.df, "T2")
-        else:
-            required_cols.append("T2")
-
-        for col in required_cols:
-            if col not in self.df.columns:
-                raise ValueError(f"Missing column: {col}")
+        # Ensure required modality columns exist in dataframe or will be added
+        # If t1/t2 directories are provided, we expect raw T1/T2 paths in the CSV
+        if self.t1_path is None and 'T1_orig' not in self.df.columns:
+            raise ValueError('Missing T1 information: either provide t1_path or T1 column in CSV')
+        if self.t2_path is None and 'T2_orig' not in self.df.columns:
+            raise ValueError('Missing T2 information: either provide t2_path or T2 column in CSV')
 
         df_slice = self.df.iloc[start_row:end_row]
 
         for _, row in df_slice.iterrows():
             self.register_subject(row)
 
+        # After processing, update CSV with final output paths
+        self.df = self.update_csv(self.df, col_name='SRI')
         print("=== All subjects processed. ===")

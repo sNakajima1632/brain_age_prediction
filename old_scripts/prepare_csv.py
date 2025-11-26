@@ -6,11 +6,6 @@ import pandas as pd
 from pathlib import Path
 
 
-def _extract_id(s: str) -> str:
-    m = re.search(r"IXI(\d+)", str(s), re.IGNORECASE)
-    return m.group(1) if m else ''
-
-
 def create_ixi_csv(ixi_t1_root: str, ixi_t2_root: str, xls_path: str, output_csv: str) -> pd.DataFrame:
     """
     Create a CSV linking IXI subjects to T1/T2 image files and ages.

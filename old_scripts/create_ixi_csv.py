@@ -75,5 +75,5 @@ if __name__ == "__main__":
     df = create_ixi_csv(
         ixi_root='IXIprep_final_image_only',
         xls_path='IXI.xls',
-        output_csv='ixi_subjects.csv'
+        output_csv='ixi_out.csv'
     )

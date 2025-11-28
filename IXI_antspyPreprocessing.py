@@ -269,7 +269,9 @@ class ANTSCoregistrationPipeline:
     #  RUNNER
     # ----------------------------------------------------------
     def run(self, start_row=0, end_row=None):
-        """Runs pipeline; unchanged except for removing CLI checks."""
+        """
+        Execute the ANTsPy registration pipeline for a range of subjects.
+        """
         base, ext = os.path.splitext(self.csv_path)
         updated = Path(f"{base}_updated{ext}")
         if updated.exists():

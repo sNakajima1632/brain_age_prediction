@@ -167,6 +167,25 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
+    # Runtime GPU/process diagnostics to help debug environment issues
+    try:
+        import os, sys
+        import torch as _torch
+        logging.info('sys.executable: %s', sys.executable)
+        logging.info('PYTHONPATH: %s', os.environ.get('PYTHONPATH'))
+        logging.info('CUDA_VISIBLE_DEVICES: %s', os.environ.get('CUDA_VISIBLE_DEVICES'))
+        logging.info('torch: %s cuda: %s cuda_available: %s', getattr(_torch, '__version__', None), getattr(_torch.version, 'cuda', None), _torch.cuda.is_available())
+        if _torch.cuda.is_available():
+            try:
+                logging.info('cuda devices: %d %s', _torch.cuda.device_count(), [_torch.cuda.get_device_name(i) for i in range(_torch.cuda.device_count())])
+            except Exception:
+                logging.info('cuda device names: unavailable')
+        else:
+            logging.warning('CUDA not available to this Python process. If you expected GPUs, ensure you activated the correct environment before launching the script.')
+    except Exception:
+        # keep the script robust even if torch isn't importable
+        logging.exception('Failed to run runtime GPU diagnostics')
+
     df = pd.read_csv(args.csv) if args.csv.endswith('.csv') else pd.read_excel(args.csv)
     if args.img_col not in df.columns or args.age_col not in df.columns:
         raise ValueError(f"CSV must contain columns: {args.img_col} and {args.age_col}")

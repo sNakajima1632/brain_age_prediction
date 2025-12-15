@@ -4,7 +4,7 @@ from pathlib import Path
 import random
 
 # 输入主 CSV
-MAIN_CSV = "/home/blue/Blue_Project/IXI_CoRR_combined.csv"
+MAIN_CSV = "/home/blue/Blue_Project/Combined_CoRR_IXI_cleaned.csv"
 
 # 输出目录
 OUT_DIR = Path("/home/blue/Blue_Project/Combine_Train")

@@ -5,6 +5,7 @@ import os
 import re
 import ants
 import tempfile
+import SimpleITK as sitk
 
 class ANTSCoregistrationPipeline:
     """
@@ -76,12 +77,17 @@ class ANTSCoregistrationPipeline:
         """
         print(f"[N4]  {input_image}")
 
-        img = ants.image_read(str(input_image))
-
         if normalize:
             # Normalize intensities to range 10–100 for N4
             print("---- NORMALIZING ----")
-            img = ants.rescale_intensity(img, newrange=(10, 100))
+            sitk_img = sitk.ReadImage(str(input_image))
+            rescaled = sitk.RescaleIntensity(sitk_img, 0.0, 100.0)
+            # Save temporary normalized image
+            tmp = Path(output_path).with_suffix('.rescaled.nii.gz')
+            sitk.WriteImage(rescaled, str(tmp))
+            img = ants.image_read(str(tmp))
+        else:
+            img = ants.image_read(str(input_image))
 
         corrected = ants.n4_bias_field_correction(img)
         ants.image_write(corrected, str(output_path))
@@ -125,7 +131,7 @@ class ANTSCoregistrationPipeline:
         print(f"\n=== PROCESSING SUBJECT {subject_id} ===")
 
         # Use a temporary directory for intermediates; only final SRI outputs
-        # will be written to self.output_dir (flat, not per-subject folders).
+        # will be written to self.output_dir/subject_id.
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         tempdir = tempfile.TemporaryDirectory()
@@ -206,9 +212,17 @@ class ANTSCoregistrationPipeline:
         # ----------------------------------------------------------
         print("Applying T1→TEMPLATE transform to all modalities...")
 
+        # create a subject-specific output directory and save outputs inside it
+        subject_dir = self.output_dir / subject_id
+        subject_dir.mkdir(parents=True, exist_ok=True)
+
         final_paths = {}
         for name, path in coreg_native.items():
-            out = self.output_dir / f"{subject_id}_SRI_{name}.nii.gz"
+            # Save T1 as <subject_id>.nii.gz and other contrasts with a suffix
+            if name == 't1':
+                out = subject_dir / f"{subject_id}_SRI_{name}_preprocessed.nii.gz"
+            else:
+                out = subject_dir / f"{subject_id}_SRI_{name}_preprocessed.nii.gz"
             self._apply_affine(
                 path,
                 self.template_path,
@@ -235,52 +249,16 @@ class ANTSCoregistrationPipeline:
         print(f"✓ DONE: {subject_id}")
 
     # ----------------------------------------------------------
-    #  CSV UPDATE FUNCTION
-    # ----------------------------------------------------------
-    def update_csv(self, dataframe, col_name=None):
-        """Update the dataframe by adding SRI output paths for each subject.
-
-        If `col_name` is provided and equals 'SRI', this will add two columns
-        `SRI_T1` and `SRI_T2` containing the paths to the final SRI images
-        saved in `self.output_dir` (or blank if not present).
-        The function writes an updated CSV with suffix `_updated` and returns it.
-        """
-        df = dataframe.copy()
-        # determine id column
-        id_col = next((c for c in df.columns if 'id' in c.lower()), None)
-        if id_col is None:
-            raise ValueError('No ID column found in dataframe to update CSV')
-
-        for ix, row in df.iterrows():
-            raw_id = str(row[id_col])
-            # final images named using raw_id (no padding)
-            t1_out = self.output_dir / f"{raw_id}_SRI_t1.nii.gz"
-            t2_out = self.output_dir / f"{raw_id}_SRI_t2.nii.gz"
-            df.at[ix, 'SRI_T1'] = str(t1_out) if t1_out.exists() else ''
-            df.at[ix, 'SRI_T2'] = str(t2_out) if t2_out.exists() else ''
-
-        base, ext = os.path.splitext(self.csv_path)
-        outpath = Path(f"{base}_updated{ext}")
-        df.to_csv(outpath, index=False)
-        print(f"Wrote updated CSV: {outpath}")
-        return df
-
-    # ----------------------------------------------------------
     #  RUNNER
     # ----------------------------------------------------------
     def run(self, start_row=0, end_row=None):
         """
         Execute the ANTsPy registration pipeline for a range of subjects.
         """
-        base, ext = os.path.splitext(self.csv_path)
-        updated = Path(f"{base}_updated{ext}")
-        if updated.exists():
-            self.csv_path = updated
-
         try:
-            self.df = pd.read_excel(self.csv_path)
-        except:
             self.df = pd.read_csv(self.csv_path)
+        except:
+            self.df = pd.read_excel(self.csv_path)
 
         # detect id column (any column containing 'id')
         id_col = next((c for c in self.df.columns if 'id' in c.lower()), None)
@@ -289,7 +267,7 @@ class ANTSCoregistrationPipeline:
         self.id_col = id_col
 
         # Ensure required modality columns exist in dataframe or will be added
-        # If t1/t2 directories are provided, we expect raw T1/T2 paths in the CSV
+        # If t1/t2 directories are provided, expect raw T1/T2 paths in the CSV
         if self.t1_path is None and 'T1_orig' not in self.df.columns:
             raise ValueError('Missing T1 information: either provide t1_path or T1 column in CSV')
         if self.t2_path is None and 'T2_orig' not in self.df.columns:
@@ -300,6 +278,36 @@ class ANTSCoregistrationPipeline:
         for _, row in df_slice.iterrows():
             self.register_subject(row)
 
-        # After processing, update CSV with final output paths
-        self.df = self.update_csv(self.df, col_name='SRI')
         print("=== All subjects processed. ===")
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="ANTsPy Multi-contrast MRI Co-registration Pipeline"
+    )
+    parser.add_argument("--csv_path", type=str, required=True,
+                        help="Path to input CSV with subject information")
+    parser.add_argument("--template_path", type=str, required=True,
+                        help="Path to anatomical template (e.g., MNI)")
+    parser.add_argument("--output_dir", type=str, required=True,
+                        help="Directory to save outputs")
+    parser.add_argument("--t1_path", type=str, default=None,
+                        help="Directory containing T1-weighted images")
+    parser.add_argument("--t2_path", type=str, default=None,
+                        help="Directory containing T2-weighted images")
+    parser.add_argument("--start_row", type=int, default=0,
+                        help="Start row index (inclusive)")
+    parser.add_argument("--end_row", type=int, default=None,
+                        help="End row index (exclusive)")
+    
+    args = parser.parse_args()
+
+    pipeline = ANTSCoregistrationPipeline(
+        csv_path=args.csv_path,
+        template_path=args.template_path,
+        output_dir=args.output_dir,
+        t1_path=args.t1_path,
+        t2_path=args.t2_path
+    )
+    pipeline.run(start_row=args.start_row, end_row=args.end_row)

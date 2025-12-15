@@ -1,0 +1,9 @@
+Dataset: IXI T1 + T2 Combined
+Best model epoch: 67
+Best validation MAE: 5.613
+Test MAE: 5.172
+
+Dataset split:
+Train samples: 702 (351 T1+T2 pairs)
+Val samples: 234 (117 T1+T2 pairs)
+Test samples: 232 (116 T1+T2 pairs)

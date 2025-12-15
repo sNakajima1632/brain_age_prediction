@@ -1,6 +1,7 @@
 *.nii.gz
 *.tar
 *.zip
+*.pt
 /IXIprep
 /IXIprep_final_image_only
 /IXI-T1

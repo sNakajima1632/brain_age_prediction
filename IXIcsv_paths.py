@@ -170,16 +170,32 @@ def create_combined_csv(ixi_t1_root: str | None,
 
         key_variants = [raw_id, padded, intkey]
 
-        t1_orig = _get_from_map(t1_map, key_variants) if t1_map else ''
-        t2_orig = _get_from_map(t2_map, key_variants) if t2_map else ''
+        # Prefer values present directly in the metadata XLS (if provided)
+        xls_t1_orig = ''
+        xls_t2_orig = ''
+        xls_t1_prep = ''
+        xls_t2_prep = ''
+        if 'T1_orig' in row.index and not pd.isna(row.get('T1_orig')):
+            xls_t1_orig = str(row.get('T1_orig')).strip()
+        if 'T2_orig' in row.index and not pd.isna(row.get('T2_orig')):
+            xls_t2_orig = str(row.get('T2_orig')).strip()
+        if 'T1' in row.index and not pd.isna(row.get('T1')):
+            xls_t1_prep = str(row.get('T1')).strip()
+        if 'T2' in row.index and not pd.isna(row.get('T2')):
+            xls_t2_prep = str(row.get('T2')).strip()
 
+        # Resolve original paths: prefer XLS, else look up from provided roots
+        t1_orig = xls_t1_orig if xls_t1_orig else (_get_from_map(t1_map, key_variants) if t1_map else '')
+        t2_orig = xls_t2_orig if xls_t2_orig else (_get_from_map(t2_map, key_variants) if t2_map else '')
+
+        # Resolve preprocessed paths: prefer XLS, else look up from prep root
         prep_entry = prep_map.get(raw_id) or prep_map.get(padded) or (prep_map.get(intkey) if intkey else None)
-        t1_prep = prep_entry.get('t1') if prep_entry else ''
-        t2_prep = prep_entry.get('t2') if prep_entry else ''
+        t1_prep = xls_t1_prep if xls_t1_prep else (prep_entry.get('t1') if prep_entry else '')
+        t2_prep = xls_t2_prep if xls_t2_prep else (prep_entry.get('t2') if prep_entry else '')
 
         age = age_lookup.get(raw_id, '')
 
-        # Enforce presence: ID, AGE, and at least a complete pair of T1+T2
+        # Enforce presence: ID and AGE always required
         missing_reasons = []
         if not raw_id:
             missing_reasons.append('ID')
@@ -187,16 +203,29 @@ def create_combined_csv(ixi_t1_root: str | None,
         if pd.isna(age) or age in (None, ''):
             missing_reasons.append('AGE')
 
-        # Determine if we have a complete pair in preprocessed or original
-        has_prep_pair = bool(t1_prep) and bool(t2_prep)
-        has_orig_pair = bool(t1_orig) and bool(t2_orig)
+        have_orig_roots = bool(ixi_t1_root and ixi_t2_root)
+        have_prep_root = bool(ixi_prep_root)
 
-        if not (has_prep_pair or has_orig_pair):
-            # report which of the four paths are missing for clarity
-            if not t1_orig and not t1_prep:
-                missing_reasons.append('T1')
-            if not t2_orig and not t2_prep:
-                missing_reasons.append('T2')
+        # Scenario 1: user provided both original roots -> require complete original pair
+        if have_orig_roots:
+            if not (t1_orig and t2_orig):
+                if not t1_orig:
+                    missing_reasons.append('original T1')
+                if not t2_orig:
+                    missing_reasons.append('original T2')
+
+        # Scenario 2: user provided only prep root (no original roots)
+        elif have_prep_root and not have_orig_roots:
+            # If the XLS contains T1_orig and T2_orig columns we require that pair to be present
+            if 'T1_orig' in row.index and 'T2_orig' in row.index:
+                if not (xls_t1_orig and xls_t2_orig):
+                    missing_reasons.append('xls original T1 and T2')
+            # otherwise we only require ID and AGE (already enforced above)
+
+        # Scenario 3: no roots provided — only ID and AGE are required; retain any columns present in XLS
+        else:
+            # no additional requirements
+            pass
 
         if missing_reasons:
             logging.info("Skipping subject %s: missing %s", raw_id or '<no-id>', ", ".join(missing_reasons))
@@ -227,7 +256,7 @@ def _build_arg_parser():
     p.add_argument('--ixi_t2_root', default=None, help='path to original IXI T2 files (optional)')
     p.add_argument('--ixi_prep_root', default=None, help='path to preprocessed IXI folders (optional)')
     p.add_argument('--xls_path', default='IXI.xls', help='path to IXI metadata (Excel or CSV)')
-    p.add_argument('--output_csv', default='ixi_combined.csv', help='output CSV path')
+    p.add_argument('--output_csv', default='IXI_full.csv', help='output CSV path')
     p.add_argument('--recursive', action='store_true', help='search image roots recursively')
     p.add_argument('--dry-run', action='store_true', help='preview output without writing CSV')
     p.add_argument('--verbose', action='store_true', help='enable debug logging')

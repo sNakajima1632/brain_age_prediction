@@ -29,7 +29,7 @@ def parse_args():
     )
     p.add_argument(
         '--ixi-csv',
-        default='../ixi_full.csv',
+        default='../IXI_full_IDdir.csv',
         help='Path to IXI CSV file (default: ixi_full.csv)'
     )
     p.add_argument(
@@ -129,7 +129,7 @@ def process_corr(csv_path, verbose=False):
     # Create output dataframe with T1 = PT_Path and T2 empty
     # Replace .pt extension with _preprocessed.nii.gz and normalize slashes
     t1_paths = df['PT_Path'].astype(str).str.replace(r'\.pt$', '_preprocessed.nii.gz', regex=True)
-    t1_paths = t1_paths.str.replace('\\', '/')
+    t1_paths = t1_paths.str.replace('\\','/')
 
     df_processed = pd.DataFrame({
         'PatientID': df['PatientID'],

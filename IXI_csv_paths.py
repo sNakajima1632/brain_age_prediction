@@ -206,7 +206,7 @@ def create_combined_csv(ixi_t1_root: str | None,
         have_orig_roots = bool(ixi_t1_root and ixi_t2_root)
         have_prep_root = bool(ixi_prep_root)
 
-        # Scenario 1: user provided both original roots -> require complete original pair
+        # T1/T2 original roots only > T1/T2 images pair required
         if have_orig_roots:
             if not (t1_orig and t2_orig):
                 if not t1_orig:
@@ -214,17 +214,15 @@ def create_combined_csv(ixi_t1_root: str | None,
                 if not t2_orig:
                     missing_reasons.append('original T2')
 
-        # Scenario 2: user provided only prep root (no original roots)
+        # Preprocessed image root only > require complete preprocessed pair
         elif have_prep_root and not have_orig_roots:
             # If the XLS contains T1_orig and T2_orig columns we require that pair to be present
             if 'T1_orig' in row.index and 'T2_orig' in row.index:
                 if not (xls_t1_orig and xls_t2_orig):
-                    missing_reasons.append('xls original T1 and T2')
-            # otherwise we only require ID and AGE (already enforced above)
+                    missing_reasons.append('original T1 and T2 paths from CSV')
 
-        # Scenario 3: no roots provided — only ID and AGE are required; retain any columns present in XLS
+        # No roots provided > ID and age only, retain paths
         else:
-            # no additional requirements
             pass
 
         if missing_reasons:

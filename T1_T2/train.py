@@ -21,7 +21,7 @@ set_determinism(42)
 # 1. Dataset with Transforms
 # -----------------------
 class BrainAgeDataset(Dataset):
-    def __init__(self, csv_path, root_dir="/home/blue/Blue_Project", target_size=(160, 192, 160)):
+    def __init__(self, csv_path, root_dir="../", target_size=(160, 192, 160)):
         self.df = pd.read_csv(csv_path)
         self.root_dir = root_dir
         self.target_size = target_size
@@ -111,7 +111,7 @@ class EarlyStopping:
 # -----------------------
 # 3. Load Data
 # -----------------------
-ROOT = "/home/blue/Blue_Project/T1_T2"
+ROOT = "../T1_T2"
 
 train_csv = f"{ROOT}/train_split.csv"
 val_csv   = f"{ROOT}/val_split.csv"

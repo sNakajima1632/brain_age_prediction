@@ -4,10 +4,10 @@ from pathlib import Path
 import random
 
 # 输入主 CSV
-MAIN_CSV = "/home/blue/Blue_Project/IXI_full_IDdir.csv"
+MAIN_CSV = "../IXI_full.csv"
 
 # 输出目录
-OUT_DIR = Path("/home/blue/Blue_Project/T1_T2")
+OUT_DIR = Path("../T1_T2")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 输出文件路径

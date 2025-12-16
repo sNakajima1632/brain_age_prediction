@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 
 # 读取两个CSV文件
-corr_df = pd.read_csv('/home/blue/Blue_Project/CoRR_MNI_with_Age.csv')
-ixi_df = pd.read_csv('/home/blue/Blue_Project/IXI_full_IDdir.csv')
+corr_df = pd.read_csv('/CoRR_MNI_with_Age.csv')
+ixi_df = pd.read_csv('/IXI_full.csv')
 
 print("=== 原始数据统计 ===")
 print(f"CoRR原始数据: {len(corr_df)} 条")
@@ -47,7 +47,7 @@ print(f"删除了 {before_drop - len(combined_df)} 条年龄异常的记录")
 combined_df = combined_df.reset_index(drop=True)
 
 # 保存清洗后的CSV
-output_path = '/home/blue/Blue_Project/Combined_CoRR_IXI_cleaned.csv'
+output_path = '/Combined_CoRR_IXI_cleaned.csv'
 combined_df.to_csv(output_path, index=False)
 
 print(f"\n=== 清洗完成 ===")

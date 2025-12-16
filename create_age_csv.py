@@ -4,9 +4,9 @@ from pathlib import Path
 import pandas as pd
 
 # ------------ PATH CONFIG ------------
-PREPROC_ROOT = Path("/home/blue/Blue_Project/CoRR_fully_Preprocessed")
-BIDS_ROOT    = Path("/home/blue/Blue_Project/CoRR/RawDataBIDS")
-OUT_CSV      = Path("/home/blue/Blue_Project/CoRR_MNI_with_Age.csv")
+PREPROC_ROOT = Path("/CoRR_fully_Preprocessed")
+BIDS_ROOT    = Path("/CoRR/RawDataBIDS")
+OUT_CSV      = Path("/CoRR_MNI_with_Age.csv")
 
 # ------------ AGE COLUMN DETECTION ------------
 age_candidates = [

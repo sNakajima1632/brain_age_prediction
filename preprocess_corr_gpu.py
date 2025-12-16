@@ -66,8 +66,8 @@ def process_subject(row, output_root):
 # 主程序
 # ---------------------------
 if __name__ == "__main__":
-    csv_file = "/home/blue/Blue_Project/CoRR_Preprocessed_csv.csv"
-    output_dir = Path("/home/blue/Blue_Project/CoRR_Preprocessed")
+    csv_file = "/CoRR_Preprocessed_csv.csv"
+    output_dir = Path("/CoRR_Preprocessed")
 
     df = pd.read_csv(csv_file)
     print(f"Loaded {len(df)} subjects")

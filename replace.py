@@ -4,9 +4,9 @@ from pathlib import Path
 import pandas as pd
 
 # -------- Paths --------
-OLD_CSV = "/home/blue/Blue_Project/CoRR_Age_Training_Table.csv"
-PREPROC_ROOT = Path("/home/blue/Blue_Project/CoRR_fully_Preprocessed")
-OUT_CSV = Path("/home/blue/Blue_Project/CoRR_MNI_with_Age.csv")
+OLD_CSV = "/CoRR_Age_Training_Table.csv"
+PREPROC_ROOT = Path("/CoRR_fully_Preprocessed")
+OUT_CSV = Path("/CoRR_MNI_with_Age.csv")
 
 def main():
 

@@ -74,6 +74,6 @@ def create_corr_csv(corr_root: str, output_csv: str) -> pd.DataFrame:
 
 if __name__ == "__main__":
     create_corr_csv(
-        corr_root="/home/blue/Blue_Project/CoRR/T1w",
-        output_csv="/home/blue/Blue_Project/CoRR_Preprocessed_csv.csv"
+        corr_root="/CoRR/T1w",
+        output_csv="/CoRR_Preprocessed_csv.csv"
     )

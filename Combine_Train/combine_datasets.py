@@ -39,8 +39,8 @@ def parse_args():
     )
     p.add_argument(
         '--ixi-prefix',
-        default='/home/blue/Blue_Project/',
-        help='Prefix to add to IXI T1/T2 paths (default: /home/blue/Blue_Project/)'
+        default='../',
+        help='Prefix to add to IXI T1/T2 paths (default: ../)'
     )
     p.add_argument(
         '--output',

@@ -29,7 +29,7 @@ def parse_args():
     )
     p.add_argument(
         '--ixi-csv',
-        default='../IXI_full_IDdir.csv',
+        default='../IXI_full.csv',
         help='Path to IXI CSV file (default: ixi_full.csv)'
     )
     p.add_argument(
